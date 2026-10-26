@@ -10,17 +10,12 @@ import (
 	"github.com/enowx/enowx/core/agent"
 )
 
-func TestHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
-		return
-	}
-	defer os.Exit(0)
-	args := os.Args[3:]
-	_ = json.NewEncoder(os.Stdout).Encode(args)
-}
-
+// A program started through PowerShell, as thenShell starts agents, gets
+// its arguments as they were: quotes, $, backslashes, newlines and empty
+// ones, in Windows PowerShell 5.1 and in PowerShell 7 where it is
+// installed.
 func TestPsQuotePreservesArguments(t *testing.T) {
-	testCases := [][]string{
+	cases := [][]string{
 		{"--append-system-prompt", agent.Guide},
 		{"simple", "words"},
 		{"don't", "it's 'great'"},
@@ -32,21 +27,26 @@ func TestPsQuotePreservesArguments(t *testing.T) {
 		{`path\to\"file"`, `C:\Program Files\app`},
 		{"", "next"},
 	}
-
-	for _, tc := range testCases {
-		cmdStr := "& " + psQuote(append([]string{os.Args[0], "-test.run=TestHelperProcess", "--"}, tc...))
-		cmd := exec.Command("powershell.exe", "-NoLogo", "-Command", cmdStr)
-		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("powershell execution failed: %v: %s", err, out)
+	for _, shell := range []string{"powershell.exe", "pwsh.exe"} {
+		if _, err := exec.LookPath(shell); err != nil {
+			t.Logf("%s isn't installed", shell)
+			continue
 		}
-		var got []string
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("failed to parse helper output %q: %v", string(out), err)
-		}
-		if !reflect.DeepEqual(got, tc) {
-			t.Errorf("mismatch:\n got: %#v\nwant: %#v", got, tc)
+		for _, tc := range cases {
+			run := psLegacy + "& " + psQuote(append([]string{os.Args[0]}, tc...))
+			cmd := exec.Command(shell, "-NoLogo", "-NoProfile", "-Command", run)
+			cmd.Env = append(os.Environ(), psArgsHelper+"=1")
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("%s: %v: %s", shell, err, out)
+			}
+			var got []string
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatalf("%s: the program printed %q: %v", shell, out, err)
+			}
+			if !reflect.DeepEqual(got, tc) {
+				t.Errorf("%s:\n got: %#v\nwant: %#v", shell, got, tc)
+			}
 		}
 	}
 }

@@ -10,6 +10,12 @@ import (
 
 var backslashesBeforeQuote = regexp.MustCompile(`(\\*)(")`)
 
+// psLegacy has PowerShell 7.3+ pass a program its arguments as Windows
+// PowerShell 5.1 does, which psQuote escapes for: their own way ("Windows")
+// would pass psQuote's escapes on as backslashes. Older PowerShells ignore
+// it.
+const psLegacy = "$PSNativeCommandArgumentPassing = 'Legacy'; "
+
 // thenShell runs argv and, once it exits, leaves the shell terminals
 // start with running in the same terminal, as when an agent is started
 // from a terminal app. PowerShell runs argv: the one picked, staying on;
@@ -19,7 +25,7 @@ func thenShell(argv []string) []string {
 	if len(argv) == 0 {
 		return nil
 	}
-	run := "& " + psQuote(argv)
+	run := psLegacy + "& " + psQuote(argv)
 	shell := defaultShell()
 	switch strings.ToLower(filepath.Base(shell)) {
 	case "pwsh.exe", "powershell.exe":
